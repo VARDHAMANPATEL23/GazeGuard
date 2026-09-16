@@ -18,7 +18,7 @@ class OverlayWindow(Gtk.ApplicationWindow):
     """
     Fullscreen overlay window.
     Draws foveated focus window following gaze with smooth eased movement.
-    Supports dynamic settings reload, pausing, and multi-face security.
+    Supports dynamic settings reload, pausing, camera disconnect safe mode, and multi-face security.
     """
 
     def __init__(self, gaze_engine, screenshot_path=None, *args, **kwargs):
@@ -144,6 +144,21 @@ class OverlayWindow(Gtk.ApplicationWindow):
         # Solid privacy shield background
         cr.set_source_rgba(0, 0, 0, 1.0)
         cr.paint()
+
+        # Camera disconnect safe mode
+        if not self.engine.is_camera_connected():
+            cr.set_source_rgba(0.8, 0.4, 0.0, 0.9)
+            cr.rectangle(0, 0, width, 55)
+            cr.fill()
+
+            cr.set_source_rgb(1, 1, 1)
+            cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+            cr.set_font_size(20)
+            msg = "GazeGuard: Camera Disconnected — Screen secured (Reconnecting every 5s...)"
+            ext = cr.text_extents(msg)
+            cr.move_to((width - ext.width) / 2, 35)
+            cr.show_text(msg)
+            return
 
         # Multi-face security alert
         is_mf = self.multi_face_security and self.engine.is_multi_face()

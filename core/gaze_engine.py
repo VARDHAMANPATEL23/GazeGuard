@@ -1,6 +1,6 @@
-import sys
 import json
 import queue
+import sys
 import threading
 from pathlib import Path
 
@@ -10,6 +10,7 @@ from core.calibration import CalibrationManager
 from core.gaze_pipeline import GazePipeline
 from core.smoother import GazeSmoother
 
+
 class GazeEngine:
     """
     Gaze Engine: consumes (raw_gaze, face_count) from GazePipeline,
@@ -17,28 +18,29 @@ class GazeEngine:
     """
 
     def __init__(self, smoothing_level="medium"):
-        self._smooth_gaze = None     # (x, y) — latest smooth coordinate
-        self._face_count = 0         # latest face count
-        self._multi_face = False     # True when more than 1 face detected
+        self._smooth_gaze = None  # (x, y) — latest smooth coordinate
+        self._face_count = 0  # latest face count (-1 = camera disconnected)
+        self._multi_face = False  # True when more than 1 face detected
+        self._camera_connected = True
         self._lock = threading.Lock()
 
         self.smoother = GazeSmoother(smoothing_level)
 
         # Load calibration profile
         self.cal_manager = self._load_calibration()
-        
+
         # Load camera device from config
         device_node = "/dev/video0"
         if config.CAMERA_FILE.exists():
             try:
-                with open(config.CAMERA_FILE, 'r') as f:
+                with open(config.CAMERA_FILE, "r") as f:
                     device_node = json.load(f).get("device", "/dev/video0")
             except Exception:
                 pass
 
         screen_w, screen_h = self._get_screen_resolution()
         self.pipeline = GazePipeline(self.cal_manager, device_node)
-        
+
         self._running = False
         self._consumer_thread = None
 
@@ -50,7 +52,7 @@ class GazeEngine:
             )
 
         # Screen resolution from profile
-        with open(config.DEFAULT_PROFILE_FILE, 'r') as f:
+        with open(config.DEFAULT_PROFILE_FILE, "r") as f:
             data = json.load(f)
         w, h = data["screen_resolution"]
 
@@ -61,7 +63,7 @@ class GazeEngine:
     def _get_screen_resolution(self):
         if config.DEFAULT_PROFILE_FILE.exists():
             try:
-                with open(config.DEFAULT_PROFILE_FILE, 'r') as f:
+                with open(config.DEFAULT_PROFILE_FILE, "r") as f:
                     data = json.load(f)
                 return tuple(data["screen_resolution"])
             except Exception:
@@ -85,6 +87,14 @@ class GazeEngine:
 
             with self._lock:
                 self._face_count = face_count
+                if face_count == -1:
+                    # Camera disconnected safe mode
+                    self._camera_connected = False
+                    self._smooth_gaze = None
+                    self._multi_face = False
+                    continue
+
+                self._camera_connected = True
                 self._multi_face = face_count > 1
 
                 if raw_gaze is not None:
@@ -98,6 +108,11 @@ class GazeEngine:
         """Returns (x, y) smoothed screen coordinate or None if no face."""
         with self._lock:
             return self._smooth_gaze
+
+    def is_camera_connected(self):
+        """Returns True if the camera feed is healthy."""
+        with self._lock:
+            return self._camera_connected
 
     def is_multi_face(self):
         """Returns True when more than 1 face is detected."""

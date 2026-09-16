@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=GazeGuard
+GenericName=Privacy Screen Overlay
+Comment=Foveated eye-tracking screen shield for shoulder-surfing defense
+Exec=/bin/bash -c "cd $(dirname %k) && venv/bin/python main.py"
+Icon=security-high
+Terminal=false
+Categories=Utility;Security;Accessibility;
+Keywords=privacy;gaze;eye-tracking;security;foveated;
+StartupNotify=true

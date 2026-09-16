@@ -1,6 +1,7 @@
 """
 GazeGuard — Main entry point.
 Starts the gaze engine, overlay window, IPC server, and system tray.
+Includes graceful startup: automatically triggers calibration if profile is missing.
 """
 
 import os
@@ -23,11 +24,22 @@ from overlay.overlay_window import OverlayWindow
 def main():
     settings = load_settings()
 
-    # Verify calibration profile exists
+    # Graceful startup: Verify calibration profile exists, or launch calibration wizard
     if not config.DEFAULT_PROFILE_FILE.exists():
-        print(f"No calibration profile found at {config.DEFAULT_PROFILE_FILE}.")
-        print("Please run calibration first: python ui/continuous_calibration_ui.py")
-        sys.exit(1)
+        print(
+            "No calibration profile found. Launching Continuous Calibration Wizard..."
+        )
+        cal_script = str(config.BASE_DIR / "ui" / "continuous_calibration_ui.py")
+        try:
+            proc = subprocess.Popen([sys.executable, cal_script])
+            proc.wait()
+        except Exception as e:
+            print(f"Error launching calibration wizard: {e}")
+
+        if not config.DEFAULT_PROFILE_FILE.exists():
+            print("Calibration wizard closed without saving a profile. Exiting.")
+            sys.exit(0)
+        print("Profile generated successfully! Resuming GazeGuard startup...")
 
     # Initialize GazeEngine
     smoothing = settings.get("blur", {}).get("smoothing", "medium")
