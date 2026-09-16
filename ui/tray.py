@@ -80,9 +80,14 @@ class GazeGuardTray:
         pause_menu_item.set_submenu(pause_submenu)
         self.menu.append(pause_menu_item)
 
+        # 4. Boss Mode Quick Toggle
+        boss_item = Gtk.MenuItem(label="Toggle Boss Mode")
+        boss_item.connect("activate", self._on_toggle_boss_mode)
+        self.menu.append(boss_item)
+
         self.menu.append(Gtk.SeparatorMenuItem())
 
-        # 4. Calibration & Setup Submenu
+        # 5. Calibration & Setup Submenu
         cal_item = Gtk.MenuItem(label="Calibration")
         cal_submenu = Gtk.Menu()
 
@@ -109,7 +114,7 @@ class GazeGuardTray:
         cal_item.set_submenu(cal_submenu)
         self.menu.append(cal_item)
 
-        # 5. Settings
+        # 6. Settings
         settings_item = Gtk.MenuItem(label="Settings...")
         settings_item.connect(
             "activate", lambda w: self._launch_script("ui/settings_window.py")
@@ -118,7 +123,7 @@ class GazeGuardTray:
 
         self.menu.append(Gtk.SeparatorMenuItem())
 
-        # 6. Quit
+        # 7. Quit
         quit_item = Gtk.MenuItem(label="Quit GazeGuard")
         quit_item.connect("activate", self._on_quit)
         self.menu.append(quit_item)
@@ -148,7 +153,11 @@ class GazeGuardTray:
         else:
             parts = resp.split(":")
             state = parts[0]
-            if state == "PAUSED":
+            if state == "BOSS_BLUR":
+                self.status_item.set_label("GazeGuard: Boss Mode (Absence Shield)")
+                self.toggle_item.set_label("Disable Tracking")
+                self._set_icon_name("security-low")
+            elif state == "PAUSED":
                 self.status_item.set_label("GazeGuard: Paused")
                 self.toggle_item.set_label("Resume Tracking")
                 self._set_icon_name("security-medium")
@@ -166,6 +175,11 @@ class GazeGuardTray:
             self._launch_script("main.py")
         else:
             send_ipc_command("TOGGLE")
+        self._update_status()
+
+    def _on_toggle_boss_mode(self, widget):
+        if is_service_running():
+            send_ipc_command("TOGGLE_BOSS_MODE")
         self._update_status()
 
     def _on_pause(self, seconds):

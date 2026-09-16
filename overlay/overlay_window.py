@@ -6,6 +6,7 @@ from pathlib import Path
 import gi
 
 gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
 import cairo
 from gi.repository import Gdk, GLib, Gtk
 
@@ -13,12 +14,18 @@ sys.path.append(str(Path(__file__).parent.parent))
 import config
 from core.settings_manager import load_settings
 
+ALPHA_MAP = {
+    "low": 0.35,
+    "medium": 0.55,
+    "high": 0.75,
+}
+
 
 class OverlayWindow(Gtk.ApplicationWindow):
     """
-    Fullscreen overlay window.
-    Draws foveated focus window following gaze with smooth eased movement.
-    Supports dynamic settings reload, pausing, camera disconnect safe mode, and multi-face security.
+    Translucent privacy overlay window.
+    Draws an undecorated, maximized window with GTK CSS translucent background
+    and an illuminated white sphere gaze tracker following eye movements.
     """
 
     def __init__(self, gaze_engine, screenshot_path=None, *args, **kwargs):
@@ -27,8 +34,12 @@ class OverlayWindow(Gtk.ApplicationWindow):
         self.enabled = True
         self.paused_until = 0.0  # timestamp or -1 for indefinite
 
-        # Load settings
-        self.reload_settings()
+        self._css_provider = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(),
+            self._css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
 
         # Raw gaze target (from pipeline)
         self._target_x = 960.0
@@ -37,6 +48,9 @@ class OverlayWindow(Gtk.ApplicationWindow):
         # Visual position (interpolated towards target each tick)
         self._disp_x = 960.0
         self._disp_y = 540.0
+
+        # Load settings and apply CSS
+        self.reload_settings()
 
         self._setup_window()
         self._draw_id = GLib.timeout_add(16, self._tick)  # ~60fps
@@ -50,9 +64,24 @@ class OverlayWindow(Gtk.ApplicationWindow):
         self.blur_intensity = s.get("blur", {}).get("intensity", "medium")
         self.multi_face_security = s.get("security", {}).get("multi_face", True)
 
+        alpha = ALPHA_MAP.get(self.blur_intensity, 0.55)
+        css = f"""
+        window, window.background, .background {{
+            background-color: rgba(10, 10, 20, {alpha});
+            background: rgba(10, 10, 20, {alpha});
+            border: none;
+            box-shadow: none;
+        }}
+        """
+        self._css_provider.load_from_data(css.encode("utf-8"))
+
+        if hasattr(self.engine, "reload_settings"):
+            self.engine.reload_settings()
+
     def _setup_window(self):
         self.set_title("GazeGuard")
-        self.fullscreen()
+        self.set_decorated(False)
+        self.maximize()
 
         key_ctrl = Gtk.EventControllerKey()
         key_ctrl.connect("key-pressed", self._on_key_pressed)
@@ -131,23 +160,18 @@ class OverlayWindow(Gtk.ApplicationWindow):
         return True
 
     def on_draw(self, area, cr, width, height):
-        if not self.enabled:
-            return
-
-        if self.is_paused():
-            # In paused state, do not obscure screen
+        if not self.enabled or self.is_paused():
             return
 
         gx = self._disp_x
         gy = self._disp_y
 
-        # Solid privacy shield background
-        cr.set_source_rgba(0, 0, 0, 1.0)
-        cr.paint()
-
         # Camera disconnect safe mode
         if not self.engine.is_camera_connected():
-            cr.set_source_rgba(0.8, 0.4, 0.0, 0.9)
+            cr.set_source_rgba(0.04, 0.04, 0.08, 0.95)
+            cr.paint()
+
+            cr.set_source_rgba(0.85, 0.45, 0.05, 0.95)
             cr.rectangle(0, 0, width, 55)
             cr.fill()
 
@@ -160,11 +184,33 @@ class OverlayWindow(Gtk.ApplicationWindow):
             cr.show_text(msg)
             return
 
+        # Boss Mode absence defense
+        if self.engine.is_boss_blur():
+            fade_alpha = self.engine.get_boss_fade_alpha()
+            # Darken screen during absence
+            cr.set_source_rgba(0.04, 0.04, 0.08, 0.90 * fade_alpha)
+            cr.paint()
+
+            cr.set_source_rgba(0.1, 0.1, 0.16, 0.95 * fade_alpha)
+            cr.rectangle(0, 0, width, 50)
+            cr.fill()
+
+            cr.set_source_rgba(0.9, 0.9, 1.0, fade_alpha)
+            cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+            cr.set_font_size(18)
+            msg = "GazeGuard: Boss Mode Active — Screen secured (Absence detected)"
+            ext = cr.text_extents(msg)
+            cr.move_to((width - ext.width) / 2, 32)
+            cr.show_text(msg)
+            return
+
         # Multi-face security alert
         is_mf = self.multi_face_security and self.engine.is_multi_face()
         if is_mf:
-            # Fully obscure display with prominent security banner
-            cr.set_source_rgba(0.9, 0.1, 0.1, 0.9)
+            cr.set_source_rgba(0.04, 0.04, 0.08, 0.90)
+            cr.paint()
+
+            cr.set_source_rgba(0.9, 0.1, 0.1, 0.92)
             cr.rectangle(0, 0, width, 50)
             cr.fill()
 
@@ -177,14 +223,22 @@ class OverlayWindow(Gtk.ApplicationWindow):
             cr.show_text(msg)
             return
 
-        # Foveated clear focus window
-        cr.set_source_rgba(1.0, 1.0, 1.0, 1.0)
+        # Foveated illuminated white sphere gaze tracker
         size = self.focus_size
 
         if self.focus_shape == "circle":
-            cr.arc(gx, gy, size / 2, 0, 2 * math.pi)
+            rad = size / 2.0
+            pattern = cairo.RadialGradient(
+                gx - rad * 0.15, gy - rad * 0.15, rad * 0.05, gx, gy, rad
+            )
+            pattern.add_color_stop_rgba(0.0, 1.0, 1.0, 1.0, 1.0)
+            pattern.add_color_stop_rgba(0.7, 0.95, 0.96, 1.0, 0.92)
+            pattern.add_color_stop_rgba(1.0, 0.85, 0.88, 0.98, 0.70)
+            cr.set_source(pattern)
+            cr.arc(gx, gy, rad, 0, 2 * math.pi)
             cr.fill()
         else:  # Rectangle
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.92)
             cr.rectangle(gx - size / 2, gy - size / 2, size, size)
             cr.fill()
 

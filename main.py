@@ -17,7 +17,7 @@ from gi.repository import GLib, Gtk
 import config
 from core.gaze_engine import GazeEngine
 from core.ipc import IPCServer, is_service_running
-from core.settings_manager import load_settings
+from core.settings_manager import load_settings, save_settings
 from overlay.overlay_window import OverlayWindow
 
 
@@ -69,6 +69,8 @@ def main():
                 return "DISABLED"
             if overlay_win.is_paused():
                 return "PAUSED"
+            if overlay_win.engine.is_boss_blur():
+                return "BOSS_BLUR"
             return "ACTIVE"
 
         elif action == "TOGGLE":
@@ -96,6 +98,13 @@ def main():
             if overlay_win:
                 GLib.idle_add(overlay_win.resume)
             return "OK"
+
+        elif action == "TOGGLE_BOSS_MODE":
+            s = load_settings()
+            current_val = s.get("boss_mode", {}).get("enabled", True)
+            s["boss_mode"]["enabled"] = not current_val
+            save_settings(s, notify_overlay=True)
+            return f"BOSS_MODE:{'ENABLED' if not current_val else 'DISABLED'}"
 
         elif action == "RELOAD_SETTINGS":
             if overlay_win:

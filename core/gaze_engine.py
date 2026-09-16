@@ -6,6 +6,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 import config
+from core.boss_mode import BossModeController
 from core.calibration import CalibrationManager
 from core.gaze_pipeline import GazePipeline
 from core.smoother import GazeSmoother
@@ -14,7 +15,8 @@ from core.smoother import GazeSmoother
 class GazeEngine:
     """
     Gaze Engine: consumes (raw_gaze, face_count) from GazePipeline,
-    applies Kalman smoothing, and exposes get_gaze_point() for the overlay.
+    applies Kalman smoothing, manages Boss Mode absence security,
+    and exposes get_gaze_point() for the overlay.
     """
 
     def __init__(self, smoothing_level="medium"):
@@ -25,6 +27,7 @@ class GazeEngine:
         self._lock = threading.Lock()
 
         self.smoother = GazeSmoother(smoothing_level)
+        self.boss_mode = BossModeController()
 
         # Load calibration profile
         self.cal_manager = self._load_calibration()
@@ -70,6 +73,10 @@ class GazeEngine:
                 pass
         return (1920, 1080)
 
+    def reload_settings(self):
+        """Reload runtime settings for smoothing and boss mode."""
+        self.boss_mode.reload_settings()
+
     def start(self):
         self.pipeline.start()
         self._running = True
@@ -97,15 +104,17 @@ class GazeEngine:
                 self._camera_connected = True
                 self._multi_face = face_count > 1
 
-                if raw_gaze is not None:
+                # Update boss mode state machine with current face count
+                self.boss_mode.update(face_count)
+
+                if raw_gaze is not None and not self.boss_mode.is_boss_blur():
                     sx, sy = self.smoother.update(raw_gaze[0], raw_gaze[1])
                     self._smooth_gaze = (int(sx), int(sy))
                 else:
-                    # Face absent — leave last known gaze, flag absence
                     self._smooth_gaze = None
 
     def get_gaze_point(self):
-        """Returns (x, y) smoothed screen coordinate or None if no face."""
+        """Returns (x, y) smoothed screen coordinate or None if no face or in boss blur."""
         with self._lock:
             return self._smooth_gaze
 
@@ -118,6 +127,16 @@ class GazeEngine:
         """Returns True when more than 1 face is detected."""
         with self._lock:
             return self._multi_face
+
+    def is_boss_blur(self):
+        """Returns True when boss mode absence blur is triggered."""
+        return self.boss_mode.is_boss_blur()
+
+    def get_boss_state(self):
+        return self.boss_mode.get_state()
+
+    def get_boss_fade_alpha(self):
+        return self.boss_mode.get_fade_alpha()
 
     def face_count(self):
         with self._lock:
