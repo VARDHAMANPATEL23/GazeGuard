@@ -50,6 +50,8 @@ htmlcov/
 # Project documentation, progress tracking & phase reports
 reports/
 PROGRESS.md
+PROGRESS-Changes.md
+INSTRUCTION.md
 PROJECT.md
 PROJECT(NewChanges).md
 Valve Repo analysis.md
