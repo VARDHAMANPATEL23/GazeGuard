@@ -1,0 +1,6 @@
+mediapipe<1.0
+opencv-python
+filterpy
+scikit-learn
+keyboard
+numpy
